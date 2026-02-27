@@ -7,6 +7,7 @@ var FF_MOVE_TAB_TO_FIRST_TO_CURRENT_WINDOW = false;
 var ffHistory = [];
 var ffCurrentWindowId;
 var ffTabsOnStart = [];
+var ffFrecencyCache = {};
 
 function ffEscapeRegExp(str) {
   return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
@@ -66,44 +67,6 @@ function ffHighlightText(text, words) {
                            .replace(new RegExp("\1", "g"), "</match>");
 }
 
-function ffCalculateScoreWords(tab, words) {
-  var score = 0;
-  var hostname = ffGetHostname(tab.url);
-
-  var found_words = words.map(function() { return false; })
-
-  words
-  .map(function(word) { return ffRegexpExact(word); })
-  .forEach(function(word, i) {
-    if(hostname.match(word)) { score += 100; found_words[i] = true; }
-    if(tab.title.match(word)) { score += 100; found_words[i] = true; }
-    if(tab.url.match(word)) { score += 100; found_words[i] = true; }
-  });
-
-  words
-  .map(function(word) { return ffRegexpFuzzy(word); })
-  .forEach(function(word, i) {
-    if(found_words[i]) { return; }
-    if(hostname.match(word)) { score += 20; found_words[i] = true; }
-    if(tab.title.match(word)) { score += 20; found_words[i] = true; }
-    if(tab.url.match(word)) { score += 10; found_words[i] = true; }
-  });
-
-  if(tab.visitCount) {
-    score += tab.visitCount * 10;
-  }
-
-  if(tab.lastVisitTime) {
-    score += tab.lastVisitTime / (new Date().getTime());
-  }
-
-  if(found_words.filter(function(x) { return x; }).length !== words.length) { score = 0; }
-  if(score > 0 && tab.pinned) { score += 1000; }
-
-  if(FF_DEBUGGING && score > 0) { console.debug("matching tab", tab.lastVisitTime && "History" || "Opened", "id:"+ tab.id, "score:"+ score, hostname, tab); }
-  return score;
-}
-
 function ffRegexpExact(word) {
   return new RegExp(ffEscapeRegExp(word), 'i');
 }
@@ -116,12 +79,238 @@ function ffRegexpFuzzy(word) {
   return new RegExp(word.split('').map(function(ch) { return ffEscapeRegExp(ch); }).join('.{0,10}?'), 'i');
 }
 
+// --- fzf-style scoring ---
+
+var FF_BONUS_BOUNDARY = 10;
+var FF_BONUS_CAMEL = 8;
+var FF_BONUS_CONSECUTIVE = 4;
+var FF_BONUS_START = 2;
+var FF_BOUNDARY_CHARS = /[\s_\-\/\.,:;=+!@#$%^&*()[\]{}|<>~`'"]/;
+
+function ffIsBoundary(text, i) {
+  if (i === 0) return true;
+  return FF_BOUNDARY_CHARS.test(text[i - 1]);
+}
+
+function ffIsCamelBoundary(text, i) {
+  if (i === 0) return false;
+  var prev = text.charCodeAt(i - 1);
+  var curr = text.charCodeAt(i);
+  // lowercase -> uppercase transition
+  return (prev >= 97 && prev <= 122 && curr >= 65 && curr <= 90);
+}
+
+// Score a single pattern against text using fzf-like heuristics.
+// Returns score > 0 on match, 0 on no match.
+function ffFzfScore(text, pattern) {
+  if (pattern.length === 0) return 0;
+  if (text.length === 0) return 0;
+
+  var textLower = text.toLowerCase();
+  var patLower = pattern.toLowerCase();
+
+  // Quick reject: check all chars exist in order
+  var t = 0, p = 0;
+  while (t < textLower.length && p < patLower.length) {
+    if (textLower[t] === patLower[p]) p++;
+    t++;
+  }
+  if (p !== patLower.length) return 0;
+
+  // Greedy forward match with scoring
+  // We try two strategies and take the best:
+  // 1) greedy-first: take the first occurrence of each char
+  // 2) boundary-first: prefer matches at word boundaries
+
+  var best = ffFzfScoreGreedy(textLower, patLower, text);
+  var boundaryScore = ffFzfScoreBoundary(textLower, patLower, text);
+  if (boundaryScore > best) best = boundaryScore;
+
+  return best;
+}
+
+function ffFzfScoreGreedy(textLower, patLower, textOrig) {
+  var score = 0;
+  var consecutive = 0;
+  var pi = 0;
+
+  for (var ti = 0; ti < textLower.length && pi < patLower.length; ti++) {
+    if (textLower[ti] === patLower[pi]) {
+      var charScore = 1;
+
+      // Contiguity bonus
+      consecutive++;
+      if (consecutive > 1) charScore += consecutive * FF_BONUS_CONSECUTIVE;
+
+      // Word boundary bonus
+      if (ffIsBoundary(textOrig, ti)) charScore += FF_BONUS_BOUNDARY;
+
+      // camelCase boundary bonus
+      if (ffIsCamelBoundary(textOrig, ti)) charScore += FF_BONUS_CAMEL;
+
+      // Start-of-string bonus (first 4 chars)
+      if (ti < 4) charScore += (4 - ti) * FF_BONUS_START;
+
+      score += charScore;
+      pi++;
+    } else {
+      consecutive = 0;
+    }
+  }
+
+  return pi === patLower.length ? score : 0;
+}
+
+// Boundary-preferring strategy: for each pattern char, skip ahead to
+// the next word-boundary match if one exists, otherwise take first match.
+function ffFzfScoreBoundary(textLower, patLower, textOrig) {
+  var score = 0;
+  var consecutive = 0;
+  var ti = 0;
+
+  for (var pi = 0; pi < patLower.length; pi++) {
+    var foundBoundary = -1;
+    var foundFirst = -1;
+
+    for (var j = ti; j < textLower.length; j++) {
+      if (textLower[j] === patLower[pi]) {
+        if (foundFirst === -1) foundFirst = j;
+        if (ffIsBoundary(textOrig, j) || ffIsCamelBoundary(textOrig, j)) {
+          foundBoundary = j;
+          break;
+        }
+      }
+    }
+
+    var pos;
+    if (foundBoundary !== -1) {
+      pos = foundBoundary;
+    } else if (foundFirst !== -1) {
+      pos = foundFirst;
+    } else {
+      return 0; // no match
+    }
+
+    var charScore = 1;
+
+    // Contiguity: check if this char is right after the previous match
+    if (pi > 0 && pos === ti) {
+      consecutive++;
+      charScore += consecutive * FF_BONUS_CONSECUTIVE;
+    } else {
+      consecutive = 1;
+    }
+
+    if (ffIsBoundary(textOrig, pos)) charScore += FF_BONUS_BOUNDARY;
+    if (ffIsCamelBoundary(textOrig, pos)) charScore += FF_BONUS_CAMEL;
+    if (pos < 4) charScore += (4 - pos) * FF_BONUS_START;
+
+    score += charScore;
+    ti = pos + 1;
+  }
+
+  return score;
+}
+
+// --- Frecency ---
+
+function ffTrackSelection(url) {
+  chrome.storage.local.get({frecency: {}}, function(data) {
+    var frecency = data.frecency;
+    var entry = frecency[url] || {count: 0, lastUsed: 0};
+    entry.count++;
+    entry.lastUsed = Date.now();
+    frecency[url] = entry;
+    chrome.storage.local.set({frecency: frecency});
+    ffFrecencyCache = frecency;
+  });
+}
+
+function ffLoadFrecency() {
+  return new Promise(function(resolve) {
+    chrome.storage.local.get({frecency: {}}, function(data) {
+      ffFrecencyCache = data.frecency;
+      resolve(ffFrecencyCache);
+    });
+  });
+}
+
+function ffFrecencyBonus(url) {
+  var entry = ffFrecencyCache[url];
+  if (!entry) return 0;
+  var ageHours = (Date.now() - entry.lastUsed) / (1000 * 60 * 60);
+  // log2(count+1) * 10, decays with half-life of 72 hours
+  return Math.log2(entry.count + 1) * 10 * Math.pow(0.5, ageHours / 72);
+}
+
+// --- Scoring ---
+
+function ffCalculateScoreWords(tab, words) {
+  var score = 0;
+  var hostname = ffGetHostname(tab.url);
+  var allFound = true;
+
+  for (var i = 0; i < words.length; i++) {
+    var word = words[i];
+    var titleScore = ffFzfScore(tab.title, word);
+    var hostScore = ffFzfScore(hostname, word);
+    var urlScore = ffFzfScore(tab.url, word);
+
+    var wordScore = titleScore * 3 + hostScore * 2.5 + urlScore * 1;
+
+    if (titleScore === 0 && hostScore === 0 && urlScore === 0) {
+      allFound = false;
+      break;
+    }
+
+    score += wordScore;
+  }
+
+  // All words must match somewhere
+  if (!allFound) return 0;
+
+  // Visit count bonus (log-scaled)
+  if (tab.visitCount) {
+    score += Math.log2(tab.visitCount + 1) * 5;
+  }
+
+  // Recency bonus (exponential decay, half-life 24 hours)
+  if (tab.lastVisitTime) {
+    var ageHours = (Date.now() - tab.lastVisitTime) / (1000 * 60 * 60);
+    score += 50 * Math.pow(0.5, ageHours / 24);
+  }
+
+  // Frecency bonus (from user selections via ff)
+  score += ffFrecencyBonus(tab.url);
+
+  // Pinned tab boost
+  if (tab.pinned) score += 1000;
+
+  if (FF_DEBUGGING && score > 0) {
+    console.debug("matching tab", tab.lastVisitTime && "History" || "Opened",
+      "id:" + tab.id, "score:" + score.toFixed(1), hostname, tab);
+  }
+
+  return score;
+}
+
+function ffFilter(tabs, words) {
+  return tabs.map(function(tab) { tab.score = ffCalculateScoreWords(tab, words); return tab; })
+             .filter(function(tab) { return tab.score > 0 && tab.title.length > 0; })
+             .sort(function(tab1, tab2) {
+                if(tab1.score < tab2.score) return 1;
+                if(tab1.score > tab2.score) return -1;
+                return 0;
+              })
+             ;
+}
+
 function ffPrepareTab(tab, words) {
   var content = tab.url + "#" + tab.windowId + "." + tab.id;
   var desc = ffHighlightText(tab.title, words) + " <url>" +  ffHighlightText(ffGetHostname(tab.url), words) + "</url>";
 
   if(FF_DEBUGGING) {
-    desc = "score:" + tab.score + " - " + desc;
+    desc = "score:" + tab.score.toFixed(1) + " - " + desc;
   }
 
   if(tab.status && tab.status !== "complete") {
@@ -148,17 +337,6 @@ function ffPrepareTab(tab, words) {
   return {content: content, description: desc};
 }
 
-function ffFilter(tabs, words) {
-  return tabs.map(function(tab) { tab.score = ffCalculateScoreWords(tab, words); return tab; })
-             .filter(function(tab) { return tab.score >= 10 && tab.title.length > 0; })
-             .sort(function(tab1, tab2) {
-                if(tab1.score < tab2.score) return 1;
-                if(tab1.score > tab2.score) return -1;
-                return 0;
-              })
-             ;
-}
-
 function ffConcat(tabs1, tabs2) {
   return tabs1.concat(ffTabsWithout(tabs2, tabs1));
 }
@@ -171,26 +349,6 @@ function ffTabsWithout(whiteTabs, blackTabs) {
 
 function ffReorderTabs(tabs) {
   var windows = {};
-  /*
-  *  move ones for all (doesn't work correctly):
-  *
-  *  chrome.tabs.move(tabs.map(function(tab) { return tab.id; }), {index: 0});
-  */
-
-  /*
-  *  move once for all tabs in each window (doesn't work correctly):
-  *
-  *  tabs.forEach(function(tab) {
-  *    if(!windows[tab.windowId]) {
-  *      windows[tab.windowId] = [];
-  *    }
-  *    windows[tab.windowId].push(tab);
-  *  });
-  *  for(var windowId in windows) {
-  *    console.log("WINDOW", windowId, windows[windowId]);
-  *    chrome.tabs.move(windows[windowId].map(function(tab) { return tab.id; }), {index: 0, windowId: parseInt(windowId)});
-  *  }
-  */
 
   if(ffTabsOnStart.length === 0) {
     ffTabsOnStart = tabs.map(function(tab) { return {id: tab.id, index: tab.index}; });
@@ -198,10 +356,8 @@ function ffReorderTabs(tabs) {
 
   tabs.forEach(function(tab, i) {
     if(FF_MOVE_TAB_TO_FIRST_TO_CURRENT_WINDOW && ffCurrentWindowId) {
-      // move one by one to current window
       chrome.tabs.move(tab.id, {index: i, windowId: ffCurrentWindowId});
     } else {
-      // move one by one
       if(!windows[tab.windowId]) { windows[tab.windowId] = []; }
       windows[tab.windowId].push(true);
       chrome.tabs.move(tab.id, {index: windows[tab.windowId].length - 1});
@@ -225,27 +381,25 @@ function ffSearchFor(text) {
   text = text.trim();
   var words = text.split(/\s+/);
 
-  var words_exact_hl = text.split(/\s+/).map(function(word) {
-    return ffRegexpExactHl(word);
-  });
+  return ffLoadFrecency().then(function() {
+    return new Promise(function(resolve) {
+      chrome.tabs.query({}, function(array_of_tabs) {
+        var matching_tabs = ffFilter(array_of_tabs, words);
 
-  return new Promise(function(resolve, reject) {
-    chrome.tabs.query({}, function(array_of_tabs) {
-      var matching_tabs = ffFilter(array_of_tabs, words);
+        if(FF_MOVE_TAB_TO_FIRST) {
+          ffReorderTabs(matching_tabs.slice(0, 200));
+        }
 
-      if(FF_MOVE_TAB_TO_FIRST) {
-        ffReorderTabs(matching_tabs.slice(0, 200));
-      }
-
-      matching_tabs = matching_tabs.slice(0, FF_MAX_SUGGESTIONS);
-      if(FF_INCLUDE_HISTORY && matching_tabs.length < FF_MAX_SUGGESTIONS) {
-        chrome.history.search({text: "", maxResults: 100, startTime: new Date().getTime() - 30 * 24 * 3600 * 1000}, function(array_of_history_items) {
-          var matching_histories = ffFilter(array_of_history_items, words);
-          resolve(ffConcat(matching_tabs.slice(0, FF_MAX_SUGGESTIONS), matching_histories).map(function(tab) { return ffPrepareTab(tab, words); } ));
-        });
-        return;
-      }
-      resolve(matching_tabs.map(function(tab) { return ffPrepareTab(tab, words); }));
+        matching_tabs = matching_tabs.slice(0, FF_MAX_SUGGESTIONS);
+        if(FF_INCLUDE_HISTORY && matching_tabs.length < FF_MAX_SUGGESTIONS) {
+          chrome.history.search({text: "", maxResults: 500, startTime: Date.now() - 90 * 24 * 3600 * 1000}, function(array_of_history_items) {
+            var matching_histories = ffFilter(array_of_history_items, words);
+            resolve(ffConcat(matching_tabs.slice(0, FF_MAX_SUGGESTIONS), matching_histories).map(function(tab) { return ffPrepareTab(tab, words); } ));
+          });
+          return;
+        }
+        resolve(matching_tabs.map(function(tab) { return ffPrepareTab(tab, words); }));
+      });
     });
   });
 }
@@ -264,7 +418,6 @@ chrome.omnibox.onInputChanged.addListener(
 );
 
 chrome.omnibox.onInputCancelled.addListener(
-  // TODO this is called even when user presses UP/Down arrows.
   function() {
     // revert tab order (one by one)
     ffTabsOnStart.sort(function(tab1, tab2) {
@@ -302,11 +455,18 @@ chrome.omnibox.onInputEntered.addListener(
           if(suggestions.length === 0) { return; }
           var selected = ffParseSelected(suggestions[0].content);
           ffHistory.push(selected);
+          // Track the URL for frecency
+          var url = suggestions[0].content.replace(/#.*$/, '');
+          ffTrackSelection(url);
           ffActivateTag(selected);
         });
         return;
       }
     }
+
+    // Track the URL for frecency
+    var url = text.replace(/#.*$/, '');
+    ffTrackSelection(url);
 
     ffHistory.push(selected);
     ffActivateTag(selected);
