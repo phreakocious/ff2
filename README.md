@@ -4,7 +4,7 @@ Type `ff` in your address bar followed by your keywords to fuzzy search your tab
 
 **Note:** To select the first match, press Enter without arrowing down to a result. With no query at all, Enter jumps to your top-ranked tab.
 
-<p align="center"> <a href="#"><img src="screenshot-1.3.png"/></a> </p>
+<p align="center"> <a href="#"><img src="screenshot.png"/></a> </p>
 
 ## Features
 
@@ -30,7 +30,7 @@ If fewer than five open tabs match, the remaining rows come from your history.
 
 ## Install
 
-Install from the [Chrome Web Store](https://github.com/phreakocious/ff2) or load unpacked from `chrome://extensions/`.
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/blifadmmfdnmpmdpjfaeccfacfdddiei) or load unpacked from `chrome://extensions/`.
 
 ## Development
 
