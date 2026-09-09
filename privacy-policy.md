@@ -1,26 +1,19 @@
 # Privacy Policy
 
-We respect and value your privacy.
-This Privacy Policy describes how we handle and protect your personal information in relation to your use of the ff2 Chrome extension.
+ff2 is a Chrome extension that searches your open tabs and browsing history from the address bar.
 
-## Information Collection
+## What it reads
 
-We do not collect any personal information from the users of the ff2 Chrome extension.
-We do not gather, store, or transmit any data that can be used to personally identify you, such as your name, email address, location, or browsing history.
+To produce search results, ff2 reads the titles and URLs of your open tabs and of pages in your browsing history from the last 90 days. This happens inside your browser, on demand, when you type a query.
 
-The extension stores frecency data (which results you select) locally in your browser using `chrome.storage.local`. This data never leaves your device and is used solely to improve result ranking for you.
+## What it stores
 
-Since no data is collected, none of your data is sold to third parties.
+ff2 keeps a list of the URLs you have selected through it, each with a use count and a timestamp, in Chrome's local extension storage (`chrome.storage.local`). It uses this to rank results you pick often higher. Entries not used for 30 days are removed. Uninstalling the extension deletes the list.
 
-## Changes to this Privacy Policy
+## What leaves your device
 
-We reserve the right to amend this Privacy Policy at any time.
-Any changes will be effective immediately upon posting the revised Privacy Policy.
-You are advised to review this Privacy Policy periodically for any changes.
+Nothing. ff2 makes no network requests, has no servers, and does not share, sell, or transmit any data.
 
-By using the ff2 Chrome extension, you signify your consent and agreement to the terms of this Privacy Policy.
-If you do not agree with this Privacy Policy, please refrain from using the ff2 Chrome extension.
+## Contact
 
-## Feedback
-
-If you have questions or concerns about this Privacy Policy, you can contact us by opening an issue at https://github.com/phreakocious/ff2.
+Open an issue at https://github.com/phreakocious/ff2/issues.

@@ -1,7 +1,11 @@
-.PHONY: chrome-ff.zip
-chrome-ff.zip:
-	rm -f chrome-ff.zip
-	zip -r chrome-ff.zip . -x "*.git*" ".gitignore" "screenshot-*.png"
+.PHONY: test clean
 
-clear:
-	rm -f chrome-ff.zip
+ff2.zip: manifest.json background.js ff-16.png ff-48.png ff-128.png
+	rm -f $@
+	zip $@ $^
+
+test:
+	node test.js
+
+clean:
+	rm -f ff2.zip

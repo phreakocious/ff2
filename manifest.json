@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
 
-  "name": "ff2: Fuzzy finder for Chrome tabs and windows",
+  "name": "ff2: Fuzzy finder for Chrome tabs and history",
   "short_name": "ff2",
   "description": "Fuzzy Finder for Chrome omnibox. Type 'ff' in your address bar to fuzzy search your tabs and history.",
   "version": "2.0.0",
-  "author": "phreakocious",
   "homepage_url": "https://github.com/phreakocious/ff2",
   "permissions": [ "tabs", "history", "storage" ],
   "background": {
