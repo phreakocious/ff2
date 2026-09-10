@@ -1,6 +1,6 @@
-# ff2: Fuzzy Finder for Chrome
+# ff2 — fzf-style tab and history search
 
-Type `ff` in your address bar followed by your keywords to fuzzy search your tabs and history.
+`ff` in the address bar, then keywords. Ranks your open tabs and recent history with fzf's scoring, and learns which results you pick.
 
 **Note:** To select the first match, press Enter without arrowing down to a result. With no query at all, Enter jumps to your top-ranked tab.
 
@@ -16,17 +16,11 @@ Type `ff` in your address bar followed by your keywords to fuzzy search your tab
 
 ## Usage
 
-Let's say you have 100 tabs open, in multiple windows.
-You want to find a youtube tab of a talk you were watching a few hours ago.
-Instead of going through all your tabs one by one, you could just type (in your address bar):
+You have 90 tabs across four windows and you want the one with the conference talk you had open this morning. Type:
 
     ff talk ytube
 
-and you will see a list of all the tabs that match the phrase "ytube" and "talk" in any order.
-
-Matching is fuzzy, so "ytube" will match "youtube". Matches at word starts and in contiguous runs rank higher, and every gap costs points — the same rules fzf uses.
-
-If fewer than five open tabs match, the remaining rows come from your history.
+Words match in any order, and each matches fuzzily — "ytube" finds "youtube". Word starts and contiguous runs rank higher, gaps cost points; the rules are fzf's. If fewer than five open tabs match, history fills the remaining rows.
 
 ## Install
 

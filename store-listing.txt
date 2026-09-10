@@ -1,0 +1,37 @@
+Type ff in the Chrome address bar, then keywords. ff2 ranks your open tabs and your recent browsing history and puts the best match one Enter away.
+
+With 90 tabs across four windows, the tab you want is faster to describe than to find. Type "ff talk ytube" and the YouTube tab with the conference talk comes back first, whichever window it is buried in.
+
+HOW IT MATCHES
+
+The matcher is fzf's, ported to JavaScript: one dynamic-programming pass with affine gap penalties, not a substring test.
+
+• Words match in any order, and each one matches fuzzily. "ytube" finds "youtube".
+• Matches at word starts and at camelCase boundaries score higher.
+• Characters found in a contiguous run earn a bonus, and every gap between them costs points.
+• A match spread so thin that the gaps eat half its value is dropped rather than shown. Fuzzy does not have to mean noisy.
+• Highlighting marks the exact characters the score was built from, so what you see is why the row ranked where it did.
+
+HOW IT RANKS
+
+Match quality is only part of the score. ff2 also weighs:
+
+• Recency. A tab you focused ten minutes ago outranks one you opened last week, on a 24-hour half-life.
+• Frequency. Visit counts are log-scaled, so the site you open fifty times a day cannot bury everything else.
+• Field. A match in the page title counts for more than one buried in a URL.
+• Frecency. Results you pick through ff rank higher the next time you search, on a 72-hour half-life. Anything you have not picked in 30 days is forgotten.
+• Pinned tabs are prioritized.
+
+Open tabs come first. If fewer than five of them match, the remaining rows come from your history, going back 90 days. With no query at all, ff2 lists your tabs with pinned ones first, and Enter jumps straight to the top-ranked tab.
+
+PRIVACY
+
+ff2 makes no network requests. There are no servers, no analytics, and no account. It reads the titles and URLs of your tabs and history to build results, on demand, inside your browser.
+
+The only thing it stores is the list of URLs you have selected through it, each with a count and a timestamp, in Chrome's local extension storage. That list is the frecency learning, it never leaves your device, and uninstalling the extension deletes it.
+
+OPEN SOURCE
+
+MIT licensed, and the whole extension is one readable file: https://github.com/phreakocious/ff2
+
+ff2 is a fork of Fuzzy Finder for Chrome (chrome-ff) by Sina Siadat. The matcher, the ranking, and the learning are rewritten; the omnibox idea is his.

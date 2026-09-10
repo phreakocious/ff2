@@ -1,6 +1,6 @@
 # Privacy Policy
 
-ff2 is a Chrome extension that searches your open tabs and browsing history from the address bar.
+ff2 ranks your open tabs and recent browsing history from the Chrome address bar.
 
 ## What it reads
 
